@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Phish Fortunes</title>
+<meta name="description" content="A Family Fortunes-style game board for running phishing investigation training with SOC analysts. Built by leftanti.">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Self-hosted fonts: this page makes no third-party requests. */
+@font-face{font-family:"Bricolage Grotesque";font-style:normal;font-weight:200 800;font-stretch:75% 100%;font-display:swap;src:url(fonts/bricolage-grotesque.woff2) format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:100 800;font-display:swap;src:url(fonts/jetbrains-mono.woff2) format("woff2")}
+/* Layout: one-screen gameshow board, three phase columns on a fixed 7-row grid; mentions and bonus fill the space under the shorter columns. Host controls live in a second window (#host) or a drawer. */
+:root{
+  /* PALETTE: swap these to match your site */
+  --bg:#121019;
+  --board:#1b1827;
+  --tile:#29243d;
+  --tile-line:#3e375c;
+  --accent:#ffb347;
+  --accent-soft:#ffd28c;
+  --paper:#f7f1e6;
+  --paper-ink:#16131f;
+  --paper-muted:#5b5266;
+  --ink:#f3eefa;
+  --ink-muted:#a79fbb;
+  --strike:#ff5d6c;
+  --gold:#5fd4c8;
+  --gold-ink:#06302c;
+  --display:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  --slot:6vh;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);margin:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));overflow:hidden}
+button{font:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+code{font-family:var(--mono);font-size:.92em}
+
+.app{height:100%;display:flex;flex-direction:column;gap:1.6vh;padding-block:2vh;box-sizing:border-box}
+.top{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:var(--slot)}
+.brand{display:flex;flex-direction:column;gap:.4vh;min-width:0}
+.wordmark{font-family:var(--display);font-weight:800;font-stretch:100%;font-size:max(22px,4.4vh);line-height:1;letter-spacing:-.01em;margin:0}
+.wordmark span{color:var(--accent)}
+.sub{font-size:max(12px,1.6vh);color:var(--ink-muted);letter-spacing:.08em;text-transform:uppercase}
+.sub b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.right{display:flex;align-items:center;gap:20px}
+.util{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.ghost{background:transparent;color:var(--ink-muted);border:1px solid var(--tile-line);border-radius:999px;padding:4px 12px;font-size:12px}
+.ghost:hover{color:var(--ink);border-color:var(--accent)}
+.ghost.live{color:var(--accent-soft);border-color:transparent}
+
+.strikes{position:relative;display:flex;gap:1vh;transition:transform .3s}
+.slot{width:var(--slot);height:var(--slot);border:3px solid var(--tile-line);border-radius:10px;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:calc(var(--slot)*.72);color:transparent;line-height:1;box-sizing:border-box}
+.slot.hit{border-color:var(--strike);color:var(--strike);background:#2a0f1c}
+.xtra{position:absolute;top:0;width:var(--slot);height:var(--slot);border:3px solid var(--strike);border-radius:10px;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:calc(var(--slot)*.72);color:var(--strike);background:#2a0f1c;line-height:1;box-sizing:border-box;z-index:30}
+.xtra.new{animation:slam .35s cubic-bezier(.2,1.6,.4,1)}
+@keyframes slam{from{transform:var(--t) scale(2.4);opacity:0}}
+.strikes.wobbly{transform:rotate(-3deg) translateY(2px)}
+.strikes.broken{transform:rotate(6deg) translate(-6px,8px)}
+.cap{position:absolute;right:0;top:calc(100% + 6px);font-family:var(--mono);font-size:max(11px,1.3vh);color:var(--strike);white-space:nowrap;z-index:31}
+
+.board{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:auto repeat(7,minmax(0,1fr));gap:1vh 1.2vw;background:var(--board);border:2px solid var(--accent);border-radius:18px;padding:1.6vh 1.2vw;box-sizing:border-box}
+.phase{font-family:var(--display);font-stretch:100%;font-weight:600;font-size:max(12px,1.5vh);letter-spacing:.16em;text-transform:uppercase;color:var(--accent-soft);text-align:center;padding-bottom:.2vh}
+
+.tile{position:relative;perspective:900px;min-height:0}
+.card{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .7s cubic-bezier(.3,1.3,.5,1)}
+.tile.on .card{transform:rotateX(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:10px;display:flex;align-items:center;box-sizing:border-box}
+.front{background:var(--tile);border:1px solid var(--tile-line);justify-content:center}
+.front .big{font-family:var(--display);font-weight:800;font-size:max(18px,3.6vh);color:var(--accent-soft);font-variant-numeric:tabular-nums}
+.back{transform:rotateX(180deg);background:var(--paper);color:var(--paper-ink);border:2px solid var(--accent);gap:1vw;padding:0 1vw}
+.num{flex-shrink:0;width:max(26px,3.4vh);height:max(26px,3.4vh);border-radius:50%;background:var(--paper-ink);color:var(--accent);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:max(13px,1.7vh);font-variant-numeric:tabular-nums}
+.txt{min-width:0;display:flex;flex-direction:column;gap:.3vh}
+.name{font-family:var(--display);font-weight:800;font-stretch:88%;font-size:max(14px,2.15vh);line-height:1.1;text-wrap:balance}
+.detail{font-size:max(11px,1.45vh);line-height:1.3;color:var(--paper-muted)}
+.detail b{color:var(--paper-ink);font-weight:600}
+.detail code{color:var(--paper-ink)}
+
+.mentions{grid-column:1/3;grid-row:7;border:1px dashed var(--tile-line);border-radius:10px;padding:1vh 1vw;display:flex;flex-direction:column;gap:.8vh;min-height:0;overflow:hidden}
+.mlabel{font-size:max(11px,1.35vh);letter-spacing:.14em;text-transform:uppercase;color:var(--accent-soft)}
+.mlabel em{font-style:normal;color:var(--ink-muted);letter-spacing:.04em;text-transform:none}
+.chips{display:flex;flex-wrap:wrap;gap:.7vh .6vw;align-content:flex-start;overflow:hidden}
+.chip{background:var(--tile);border:1px solid var(--tile-line);color:var(--ink);border-radius:999px;padding:.4vh .9vw;font-size:max(12px,1.5vh);animation:chip .3s ease-out}
+@keyframes chip{from{transform:scale(.6);opacity:0}}
+
+.bonus{grid-column:1/3;grid-row:8}
+.bonus .front{background:#122a2c;border:2px dashed var(--gold);gap:.8vw}
+.bonus .front .big{color:var(--gold);font-size:max(15px,2.3vh);letter-spacing:.12em;text-transform:uppercase;font-stretch:100%}
+.bonus .back{background:var(--gold);color:var(--gold-ink);border-color:var(--gold)}
+.bonus .num{background:var(--gold-ink);color:var(--gold)}
+.bonus .detail{color:#145a53}
+
+.flash{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:50;opacity:0}
+.flash.go{animation:flash .9s ease-out}
+.flash span{font-family:var(--display);font-weight:800;font-size:48vh;line-height:1;color:var(--strike);-webkit-text-stroke:6px #2a0f1c}
+@keyframes flash{0%{opacity:0;transform:scale(1.6)}15%{opacity:1;transform:scale(1)}70%{opacity:1}100%{opacity:0}}
+
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--bg);border-left:2px solid var(--accent);z-index:60;overflow:auto;box-sizing:border-box;padding:16px max(16px,env(safe-area-inset-right,0px)) 24px 16px}
+.dclose{float:right}
+
+.helpwrap{position:fixed;inset:0;background:rgba(10,8,16,.72);display:grid;place-items:center;z-index:70;padding:16px}
+.help{background:var(--board);border:2px solid var(--accent);border-radius:16px;max-width:560px;padding:24px;color:var(--ink);font-size:15px;line-height:1.55;max-height:90vh;overflow:auto;box-sizing:border-box}
+.help h2{font-family:var(--display);font-weight:800;font-size:22px;margin:0 0 12px}
+.help ol{padding-left:20px;margin:0 0 12px;display:flex;flex-direction:column;gap:6px}
+.help p{margin:0 0 12px;color:var(--ink-muted)}
+.help kbd{font-family:var(--mono);background:var(--tile);border:1px solid var(--tile-line);border-radius:4px;padding:0 5px;color:var(--ink)}
+.help a{color:var(--accent)}
+.credit{font-size:13px}
+.foot{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(2px + env(safe-area-inset-bottom,0px));font-size:11px;color:var(--ink-muted)}
+.foot a{color:inherit}
+body.is-host .foot{display:none}
+/* Host controls */
+.host{display:flex;flex-direction:column;gap:16px;max-width:760px;margin:0 auto}
+body.is-host{overflow:auto}
+body.is-host .host{padding-block:16px}
+.hhead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.hhead h1{font-family:var(--display);font-weight:800;font-size:22px;margin:0}
+.hhead h1 span{color:var(--accent)}
+.status{font-size:13px;color:var(--ink-muted);font-variant-numeric:tabular-nums}
+.status.ok{color:var(--accent-soft)}
+.hbar{display:flex;flex-wrap:wrap;gap:8px;position:sticky;top:0;background:var(--bg);padding-block:8px;z-index:2}
+.hb{background:var(--tile);color:var(--ink);border:1px solid var(--tile-line);border-radius:8px;padding:8px 12px;font-size:14px;font-weight:600}
+.hb:hover{border-color:var(--accent)}
+.hb.strike{background:#3a0f1d;border-color:var(--strike);color:#ffd3d7}
+.hb.gold{border-color:var(--gold);color:var(--gold)}
+.hb.warn{border-color:var(--strike);color:var(--strike)}
+.mform{display:flex;gap:8px}
+.mform input{flex:1;min-width:0;background:var(--board);color:var(--ink);border:1px solid var(--tile-line);border-radius:8px;padding:8px 12px;font:inherit;font-size:14px}
+.mlist{display:flex;flex-wrap:wrap;gap:6px}
+.mlist button{background:var(--board);color:var(--ink);border:1px solid var(--tile-line);border-radius:999px;padding:4px 10px;font-size:13px}
+.mlist button:hover{border-color:var(--strike);text-decoration:line-through}
+.hphase{font-family:var(--display);font-stretch:100%;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent-soft);margin:8px 0 0}
+.rows{display:flex;flex-direction:column;border:1px solid var(--tile-line);border-radius:10px;overflow:hidden}
+.row{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:12px;align-items:start;padding:10px 12px;border-top:1px solid var(--tile-line)}
+.row:first-child{border-top:0}
+.rn{width:28px;height:28px;border-radius:50%;background:var(--tile);color:var(--accent-soft);display:grid;place-items:center;font-weight:800;font-size:13px;font-variant-numeric:tabular-nums}
+.row.on{background:#241f36}
+.row.on .rn{background:var(--accent);color:var(--paper-ink)}
+.rname{font-weight:800;font-size:15px}
+.rshort{font-size:12px;color:var(--ink-muted);margin-top:2px}
+.rnotes{font-size:13px;line-height:1.5;margin-top:6px;color:var(--ink)}
+.rnotes::before{content:"Say: ";color:var(--accent-soft);font-weight:600}
+.rbtn{background:var(--accent);color:var(--paper-ink);border:0;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;min-width:78px}
+.row.on .rbtn{background:transparent;color:var(--ink-muted);border:1px solid var(--tile-line)}
+.row.bonusrow .rn{background:#122a2c;color:var(--gold)}
+.row.bonusrow.on .rn{background:var(--gold);color:var(--gold-ink)}
+.row.bonusrow .rbtn{background:var(--gold);color:var(--gold-ink)}
+.row.bonusrow.on .rbtn{background:transparent;color:var(--ink-muted);border:1px solid var(--tile-line)}
+.keys{font-size:12px;color:var(--ink-muted);line-height:1.6}
+.keys kbd{font-family:var(--mono);background:var(--tile);border:1px solid var(--tile-line);border-radius:4px;padding:0 5px;color:var(--ink)}
+
+@media (max-width:760px){
+  html,body{height:auto}
+  body{overflow:auto}
+  .app{height:auto}
+  .top{flex-wrap:wrap}
+  .board{display:flex;flex-direction:column}
+  .tile{height:76px;flex-shrink:0}
+  .mentions{min-height:72px}
+  :root{--slot:40px}
+}
+@media (prefers-reduced-motion:reduce){
+  .card{transition:none}
+  .xtra.new,.chip,.flash.go{animation:none}
+  .strikes{transition:none}
+}
+</style>
+
+</head><body><div id="root"></div>
+<div class="foot">by <a href="https://leftanti.dev" target="_blank" rel="noopener">leftanti</a></div>
+<div class="helpwrap" id="ph-helpwrap" hidden><div class="help" role="dialog" aria-labelledby="ph-help-t"><h2 id="ph-help-t">How to run Phish Fortunes</h2><ol><li>Open this board, maximise it and share <b>this window</b> on your call (tick include sound).</li><li>Click <b>Host controls</b>. A second window opens with every answer, a speaker note per step, strikes, bonus and honourable mentions. Keep it off-screen.</li><li>Ask the room: <i>a user reports a phishing email. What do you do?</i> Reveal steps as people shout them out, in any order.</li><li>Wrong answers get a strike. There are three slots, but nobody said strikes stop at three.</li><li>Good answers that aren't on the board go into honourable mentions.</li></ol><p>No host window? Press <kbd>H</kbd> for a drawer, or type a step number to flip it, <kbd>X</kbd> strike, <kbd>Z</kbd> undo, <kbd>B</kbd> bonus. Progress saves in your browser and <b>Reset game</b> clears it.</p><p class="credit">Built by <a href="https://leftanti.dev" target="_blank" rel="noopener">leftanti</a>. Steps written for Microsoft Defender XDR and Sentinel.</p><button class="hb" id="ph-helpclose">Got it</button></div></div>
+<div class="flash" id="flash" aria-hidden="true"><span>✕</span></div>
+
+<script>
+/* Board and host windows talk only to their own origin. file:// has an opaque origin, so it falls back to "*". */
+var OR=location.protocol==="file:"?"*":location.origin;
+(function(){
+var PHASES=["Triage","Scope and impact","Containment"];
+var STEPS=[
+ {n:1,p:0,name:"Initial review",short:"Sender, subject, look and feel. <b>Phish sim?</b> Check first.",notes:"Look at the sender, the subject and how the email looks. Who reported or detected it? Rule out Attack Simulation Training or a third-party sim before anything else."},
+ {n:2,p:0,name:"Header analysis",short:"P1 vs P2 sender, Reply-To, SPF/DKIM/DMARC, sending IP",notes:"Compare SenderMailFromAddress (P1) with SenderFromAddress (P2). Check Reply-To, SPF, DKIM, DMARC and CompAuth, and the sending IP. Email entity page or EmailEvents."},
+ {n:3,p:0,name:"OSINT review of URLs and attachments",short:"VT, urlscan, domain age. Never browse from your machine.",notes:"URLs into VT and urlscan, check domain age. Attachment SHA256 from EmailAttachmentInfo into VT. Never click through from your own machine."},
+ {n:4,p:0,name:"Sandbox analysis",short:"Redirects, harvest pages, payloads. Public sandboxes publish submissions.",notes:"Detonate URLs and attachments. Look for redirect chains, credential harvesting pages and dropped payloads. Public sandboxes make submissions public by default, so keep sensitive files out of them."},
+ {n:5,p:0,name:"Make a verdict",short:"Phish, malware, BEC, spam, benign. Sets how deep you go.",notes:"Credential phish, malware, BEC, spam or benign. Everything after this depends on the call."},
+ {n:6,p:1,name:"Find all recipients",short:"<code>EmailEvents</code> / Explorer by sender, subject, URL, hash",notes:"Explorer (Real-time detections on P1) or EmailEvents by sender, subject, URL or hash. Pivot on campaign attributes, not NetworkMessageId, which is per message."},
+ {n:7,p:1,name:"Check for clicks and executions",short:"<code>UrlClickEvents</code>, <code>DeviceFileEvents</code>, <code>DeviceProcessEvents</code>",notes:"UrlClickEvents for ClickAllowed and IsClickedThrough. DeviceFileEvents by hash, DeviceProcessEvents for children of OUTLOOK.EXE."},
+ {n:8,p:1,name:"Check secondary / payload domains",short:"<code>DeviceNetworkEvents</code> for sandbox-found domains. Catches what Safe Links missed.",notes:"Take redirect and payload domains from the sandbox and hunt them in DeviceNetworkEvents and proxy or firewall logs. Catches copy-pasted links and visits Safe Links never saw."},
+ {n:9,p:1,name:"Suspicious sign-ins for clickers",short:"<code>SigninLogs</code> after click: new IP/ASN, odd MFA, AiTM alerts",notes:"SigninLogs or AADSignInEventsBeta after the click time. New IP, ASN or country, MFA satisfied from an unfamiliar place, Entra ID Protection risk, AiTM alerts."},
+ {n:10,p:1,name:"Check for persistence",short:"Inbox rules, forwarding, new MFA methods, OAuth consents",notes:"New-InboxRule, Set-InboxRule, UpdateInboxRules and forwarding. New MFA methods in AuditLogs, OAuth consent grants, outbound mail from the account. These get missed in AiTM cases."},
+ {n:11,p:2,name:"Block IOCs in MDO / email gateway",short:"Tenant Allow/Block List and your gateway. <b>Block before purge.</b>",notes:"Sender, domain, URL and file into the Tenant Allow/Block List, plus your email gateway if you have one. Block first so new copies stop landing while you purge."},
+ {n:12,p:2,name:"Block IOCs in MDE",short:"Custom indicators for URL, domain, IP, hash, set to block",notes:"Custom indicators for URLs, domains, IPs and hashes. Set the action to block, not just alert."},
+ {n:13,p:2,name:"Purge emails",short:"Take action, soft or hard delete. Confirm it completed.",notes:"Take action from Explorer or Advanced Hunting. Approve in the Action Center and check the action actually completed."},
+ {n:14,p:2,name:"User remediation",short:"<b>Revoke sessions, then reset password.</b> Remove rogue rules and MFA.",notes:"Revoke sessions first. A password reset alone doesn't kill stolen tokens. Then reset, remove rogue rules, MFA methods and apps, and confirm the user as compromised."},
+ {n:15,p:2,name:"Device remediation",short:"Isolate, full scan, investigation package (only if executed)",notes:"Isolate the device, run a full scan and collect an investigation package. Only needed if something executed."},
+ {n:16,p:2,name:"Stakeholder communications",short:"Notify per your IR process: who, what you did, next steps",notes:"Notify per your incident response process: affected users, their managers, IT or the client. Who was affected, what you did and what they need to do next."},
+ {n:17,p:2,name:"Ticket documentation",short:"Timeline, IOCs, users, actions, classification. Readable without you.",notes:"Timeline, IOCs, affected users, actions taken and classification. Written so the next analyst or an auditor can follow it without asking you."}
+];
+var BONUS={name:"Share IOCs and improve detections",short:"Push IOCs to your TIP or ISAC. Turn the gaps into detections.",notes:"Share the IOCs with your threat intel platform, ISAC or peers, and turn anything that slipped through into a new or tuned detection."};
+var TOTAL=STEPS.length;
+var KEY="phish-fortunes-v1";
+var isHost=location.hash==="#host";
+var bc=null; try{bc=new BroadcastChannel("phish-fortunes")}catch(e){}
+function fresh(){return{rev:[],strikes:0,mentions:[],bonus:false,sound:true}}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+var root=document.getElementById("root");
+
+/* ---------- Host UI (window or drawer) ---------- */
+function mountHost(el,send){
+  var html='<div class="host"><div class="hhead"><h1><span>Phish</span> Fortunes host</h1><span class="status" data-h="status">Waiting for the board window</span></div>'+
+  '<div class="hbar"><button class="hb strike" data-a="strike">Strike ✕</button><button class="hb" data-a="unstrike">Undo strike</button><button class="hb gold" data-a="bonus">Reveal bonus</button><button class="hb" data-a="all">Reveal all</button><button class="hb warn" data-a="reset">Reset game</button><button class="hb" data-a="sound">Sound on</button></div>'+
+  '<form class="mform" data-h="mform"><input id="lpf-mention" maxlength="70" placeholder="Check the user\'s other recent emails" aria-label="Honourable mention"><button class="hb" type="submit">Add mention</button></form>'+
+  '<div class="mlist" data-h="mlist"></div>';
+  PHASES.forEach(function(ph,pi){
+    html+='<p class="hphase">'+ph+'</p><div class="rows">';
+    STEPS.filter(function(s){return s.p===pi}).forEach(function(s){
+      html+='<div class="row" data-n="'+s.n+'"><span class="rn">'+s.n+'</span><div><div class="rname">'+esc(s.name)+'</div><div class="rshort">'+s.short+'</div><div class="rnotes">'+esc(s.notes)+'</div></div><button class="rbtn" data-a="reveal" data-n="'+s.n+'">Reveal</button></div>';
+    });
+    html+='</div>';
+  });
+  html+='<p class="hphase">Bonus</p><div class="rows"><div class="row bonusrow" data-n="bonus"><span class="rn">★</span><div><div class="rname">'+esc(BONUS.name)+'</div><div class="rshort">'+esc(BONUS.short)+'</div><div class="rnotes">'+esc(BONUS.notes)+'</div></div><button class="rbtn" data-a="bonus">Reveal</button></div></div>';
+  html+='<p class="keys">Board shortcuts: type a number then pause or press <kbd>Enter</kbd> to flip it, <kbd>X</kbd> strike, <kbd>Z</kbd> undo strike, <kbd>B</kbd> bonus, <kbd>H</kbd> controls drawer.</p></div>';
+  el.innerHTML=html;
+  var st=fresh(), resetArm=null;
+  el.addEventListener("click",function(e){
+    var b=e.target.closest("[data-a]"); if(!b)return;
+    var a=b.getAttribute("data-a");
+    if(a==="strike")send({op:"strike",d:1});
+    else if(a==="unstrike")send({op:"strike",d:-1});
+    else if(a==="bonus")send({op:"bonus",on:!st.bonus});
+    else if(a==="all")send({op:"all"});
+    else if(a==="sound")send({op:"sound",on:!st.sound});
+    else if(a==="reveal"){var n=+b.getAttribute("data-n");send({op:"reveal",n:n,on:st.rev.indexOf(n)<0})}
+    else if(a==="unmention")send({op:"unmention",i:+b.getAttribute("data-i")});
+    else if(a==="reset"){
+      if(resetArm){clearTimeout(resetArm);resetArm=null;b.textContent="Reset game";send({op:"reset"})}
+      else{b.textContent="Click again to reset";resetArm=setTimeout(function(){resetArm=null;b.textContent="Reset game"},3000)}
+    }
+  });
+  el.querySelector('[data-h="mform"]').addEventListener("submit",function(e){
+    e.preventDefault(); var i=el.querySelector("#lpf-mention"); var v=i.value.trim(); if(!v)return; send({op:"mention",text:v}); i.value="";
+  });
+  return function update(s,connected){
+    st=s;
+    var status=el.querySelector('[data-h="status"]');
+    if(connected){status.textContent="Strikes "+s.strikes+" · Found "+s.rev.length+" of "+TOTAL+(s.bonus?" + bonus":"");status.classList.add("ok")}
+    el.querySelectorAll(".row[data-n]").forEach(function(r){
+      var n=r.getAttribute("data-n"); var on=n==="bonus"?s.bonus:s.rev.indexOf(+n)>=0;
+      r.classList.toggle("on",on); r.querySelector(".rbtn").textContent=on?"Hide":"Reveal";
+    });
+    el.querySelector('[data-a="bonus"]').textContent=s.bonus?"Hide bonus":"Reveal bonus";
+    el.querySelector('[data-a="sound"]').textContent=s.sound?"Sound on":"Sound off";
+    el.querySelector('[data-h="mlist"]').innerHTML=s.mentions.map(function(m,i){return'<button data-a="unmention" data-i="'+i+'" title="Remove">'+esc(m)+' ✕</button>'}).join("");
+  };
+}
+
+/* ---------- Host window mode ---------- */
+if(isHost){
+  document.body.classList.add("is-host");
+  document.title="Phish Fortunes host";
+  function send(c){
+    c.id=uid(); var msg={lpf:"cmd",cmd:c};
+    try{if(window.opener&&!window.opener.closed)window.opener.postMessage(msg,OR)}catch(e){}
+    try{bc&&bc.postMessage(msg)}catch(e){}
+  }
+  var update=mountHost(root,send);
+  function onMsg(d){if(d&&d.lpf==="state")update(d.state,true)}
+  window.addEventListener("message",function(e){if(OR!=="*"&&e.origin!==OR)return;onMsg(e.data)});
+  if(bc)bc.onmessage=function(e){onMsg(e.data)};
+  update(fresh(),false);
+  send({op:"hello"});
+  return;
+}
+
+/* ---------- Board mode ---------- */
+var state=fresh();
+try{var saved=JSON.parse(localStorage.getItem(KEY)||"null");if(saved&&Array.isArray(saved.rev))state=Object.assign(fresh(),saved)}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+
+var b='<div class="app"><div class="top"><div class="brand"><h1 class="wordmark"><span>Phish</span> Fortunes</h1><div class="sub">Phishing investigation · <b data-b="found">0 of '+TOTAL+'</b> found</div></div>'+
+ '<div class="right"><div class="util"><button class="ghost" data-b="host">Host controls</button><button class="ghost" id="ph-help">How to run it</button><button class="ghost" data-b="audio" hidden>Click to enable sound</button></div><div class="strikes" data-b="strikes"><div class="slot">✕</div><div class="slot">✕</div><div class="slot">✕</div></div></div></div>'+
+ '<div class="board">';
+PHASES.forEach(function(ph,pi){
+  b+='<div class="phase" style="grid-column:'+(pi+1)+';grid-row:1">'+ph+'</div>';
+  STEPS.filter(function(s){return s.p===pi}).forEach(function(s,ri){
+    b+='<div class="tile" data-t="'+s.n+'" style="grid-column:'+(pi+1)+';grid-row:'+(ri+2)+'"><div class="card"><div class="face front"><span class="big">'+s.n+'</span></div><div class="face back"><span class="num">'+s.n+'</span><div class="txt"><div class="name">'+esc(s.name)+'</div><div class="detail">'+s.short+'</div></div></div></div></div>';
+  });
+});
+b+='<div class="mentions"><div class="mlabel">Honourable mentions <em>· good shout, not on the board</em></div><div class="chips" data-b="chips"></div></div>';
+b+='<div class="tile bonus" data-t="bonus"><div class="card"><div class="face front"><span class="big">★ Bonus</span></div><div class="face back"><span class="num">★</span><div class="txt"><div class="name">'+esc(BONUS.name)+'</div><div class="detail">'+esc(BONUS.short)+'</div></div></div></div></div>';
+b+='</div></div><aside class="drawer" data-b="drawer" hidden><button class="ghost dclose" data-b="dclose">Close</button><div data-b="dhost"></div></aside>';
+root.innerHTML=b;
+function q(k){return root.querySelector('[data-b="'+k+'"]')}
+
+/* audio */
+var actx=null;
+function ensureAudio(){try{if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();if(actx.state==="suspended")actx.resume().then(audioUi,audioUi)}catch(e){}audioUi()}
+function audioUi(){q("audio").hidden=!state.sound||(actx&&actx.state==="running")}
+function tone(f,type,at,dur,g){if(!actx||actx.state!=="running")return;var t=actx.currentTime+at,o=actx.createOscillator(),v=actx.createGain();o.type=type;o.frequency.value=f;v.gain.setValueAtTime(0.0001,t);v.gain.exponentialRampToValueAtTime(g,t+0.02);v.gain.exponentialRampToValueAtTime(0.0001,t+dur);o.connect(v).connect(actx.destination);o.start(t);o.stop(t+dur+0.05)}
+var SFX={
+ ding:function(){tone(988,"triangle",0,.5,.28);tone(1319,"sine",.09,.7,.22)},
+ buzz:function(){tone(98,"sawtooth",0,.85,.28);tone(104,"square",0,.85,.12)},
+ bonus:function(){[784,988,1175,1568].forEach(function(f,i){tone(f,"triangle",i*.1,.5,.22)})},
+ pop:function(){tone(660,"sine",0,.18,.16)},
+ all:function(){[523,659,784,1047].forEach(function(f,i){tone(f,"triangle",i*.08,.45,.18)})}
+};
+document.addEventListener("pointerdown",ensureAudio);
+
+/* render */
+function rnd(i,s){var x=Math.sin(i*9301+s*49297)*233280;return x-Math.floor(x)}
+var lastStrikes=state.strikes;
+function render(){
+  STEPS.forEach(function(s){root.querySelector('[data-t="'+s.n+'"]').classList.toggle("on",state.rev.indexOf(s.n)>=0)});
+  root.querySelector('[data-t="bonus"]').classList.toggle("on",state.bonus);
+  q("found").textContent=state.rev.length+" of "+TOTAL;
+  var sw=q("strikes"); var slots=sw.querySelectorAll(".slot");
+  slots.forEach(function(sl,i){sl.classList.toggle("hit",i<state.strikes)});
+  sw.querySelectorAll(".xtra,.cap").forEach(function(x){x.remove()});
+  for(var i=3;i<state.strikes;i++){
+    var k=i-3,x=document.createElement("div");x.className="xtra";x.textContent="✕";
+    var rot=Math.round((rnd(i,1)-.5)*80),dx=Math.round(rnd(i,2)*30),dy=Math.round((rnd(i,3)-.3)*40+k*14),sc=(1+k*.1).toFixed(2);
+    var t="translate("+(-(k+1)*58-dx)+"%,"+dy+"%) rotate("+rot+"deg) scale("+sc+")";
+    x.style.left="0";x.style.transform=t;x.style.setProperty("--t",t);
+    if(i===state.strikes-1&&state.strikes>lastStrikes)x.classList.add("new");
+    sw.appendChild(x);
+  }
+  sw.classList.toggle("wobbly",state.strikes>=5&&state.strikes<7);
+  sw.classList.toggle("broken",state.strikes>=7);
+  var capText=state.strikes===4?"uh oh":state.strikes===5?"that's not supposed to happen":state.strikes===6?"strike_count > 3 ???":state.strikes>=7?"ERR: strikes overflow ("+state.strikes+")":"";
+  if(capText){var c=document.createElement("div");c.className="cap";c.textContent=capText;sw.appendChild(c)}
+  lastStrikes=state.strikes;
+  q("chips").innerHTML=state.mentions.map(function(m){return'<span class="chip">'+esc(m)+'</span>'}).join("");
+  audioUi();
+}
+function flash(){var f=document.getElementById("flash");f.classList.remove("go");void f.offsetWidth;f.classList.add("go")}
+
+/* commands */
+var seen={},hostWin=null,hostConnected=false,drawerUpdate=null;
+function apply(c,src){
+  if(!c||!c.op)return;
+  if(c.id){if(seen[c.id])return;seen[c.id]=1}
+  var fx=null;
+  if(c.op==="hello"){hostConnected=true;if(src)hostWin=src;var hb=q("host");hb.textContent="Host connected";hb.classList.add("live")}
+  else if(c.op==="reveal"){var i=state.rev.indexOf(c.n);if(c.on&&i<0&&c.n>=1&&c.n<=TOTAL){state.rev.push(c.n);fx="ding"}else if(!c.on&&i>=0)state.rev.splice(i,1)}
+  else if(c.op==="strike"){var before=state.strikes;state.strikes=Math.max(0,state.strikes+c.d);if(state.strikes>before){fx="buzz";flash()}}
+  else if(c.op==="bonus"){if(c.on&&!state.bonus)fx="bonus";state.bonus=!!c.on}
+  else if(c.op==="mention"){var t=String(c.text||"").trim().slice(0,70);if(t){state.mentions.push(t);fx="pop"}}
+  else if(c.op==="unmention"){state.mentions.splice(c.i,1)}
+  else if(c.op==="all"){state.rev=STEPS.map(function(s){return s.n});state.bonus=true;fx="all"}
+  else if(c.op==="reset"){var snd=state.sound;state=fresh();state.sound=snd;lastStrikes=0}
+  else if(c.op==="sound"){state.sound=!!c.on;if(state.sound)ensureAudio()}
+  save();render();broadcast();
+  if(fx&&state.sound)SFX[fx]();
+}
+function broadcast(){
+  var msg={lpf:"state",state:state};
+  try{if(hostWin&&!hostWin.closed)hostWin.postMessage(msg,OR)}catch(e){}
+  try{bc&&bc.postMessage(msg)}catch(e){}
+  if(drawerUpdate)drawerUpdate(state,true);
+}
+window.addEventListener("message",function(e){if(OR!=="*"&&e.origin!==OR)return;var d=e.data;if(d&&d.lpf==="cmd")apply(d.cmd,e.source)});
+if(bc)bc.onmessage=function(e){var d=e.data;if(d&&d.lpf==="cmd")apply(d.cmd,null)};
+function local(c){c.id=uid();apply(c,null)}
+
+/* drawer fallback */
+function openDrawer(){
+  var d=q("drawer");
+  if(!drawerUpdate)drawerUpdate=mountHost(q("dhost"),local);
+  drawerUpdate(state,true);d.hidden=false;
+}
+q("dclose").addEventListener("click",function(){q("drawer").hidden=true});
+q("host").addEventListener("click",function(){
+  ensureAudio();
+  if(hostWin&&!hostWin.closed){hostWin.focus();return}
+  var w=null;try{w=window.open(location.href.split("#")[0]+"#host","phish-fortunes-host","width=580,height=900")}catch(e){}
+  if(w)hostWin=w;else openDrawer();
+});
+q("audio").addEventListener("click",ensureAudio);
+var hw=document.getElementById("ph-helpwrap");
+function helpOpen(){hw.hidden=false;document.getElementById("ph-helpclose").focus()}
+document.getElementById("ph-help").addEventListener("click",helpOpen);
+document.getElementById("ph-helpclose").addEventListener("click",function(){hw.hidden=true});
+hw.addEventListener("click",function(e){if(e.target===hw)hw.hidden=true});
+
+/* keyboard */
+var buf="",bt=null;
+function flush(){var n=parseInt(buf,10);buf="";clearTimeout(bt);if(n>=1&&n<=TOTAL)local({op:"reveal",n:n,on:state.rev.indexOf(n)<0})}
+document.addEventListener("keydown",function(e){
+  if(!hw.hidden||e.target.closest("input,textarea")||e.ctrlKey||e.metaKey||e.altKey)return;
+  ensureAudio();
+  var k=e.key;
+  if(/^[0-9]$/.test(k)){buf+=k;clearTimeout(bt);if(parseInt(buf,10)*10>TOTAL)flush();else bt=setTimeout(flush,700);return}
+  if(k==="Enter"&&buf){flush();return}
+  k=k.toLowerCase();
+  if(k==="x")local({op:"strike",d:1});
+  else if(k==="z")local({op:"strike",d:-1});
+  else if(k==="b")local({op:"bonus",on:!state.bonus});
+  else if(k==="h"){var d=q("drawer");if(d.hidden)openDrawer();else d.hidden=true}
+  else if(k==="escape"){q("drawer").hidden=true;hw.hidden=true}
+});
+
+render();
+})();
+</script>
+
+</body></html>
