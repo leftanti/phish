@@ -4,6 +4,8 @@
 <meta name="description" content="A Family Fortunes-style game board for running phishing investigation training with SOC analysts. Built by leftanti.">
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
+/* The hidden attribute must win over component display rules (.helpwrap, drawers, etc). */
+[hidden]{display:none!important}
 /* Self-hosted fonts: this page makes no third-party requests. */
 @font-face{font-family:"Bricolage Grotesque";font-style:normal;font-weight:200 800;font-stretch:75% 100%;font-display:swap;src:url(fonts/bricolage-grotesque.woff2) format("woff2")}
 @font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:100 800;font-display:swap;src:url(fonts/jetbrains-mono.woff2) format("woff2")}
@@ -386,7 +388,8 @@ hw.addEventListener("click",function(e){if(e.target===hw)hw.hidden=true});
 var buf="",bt=null;
 function flush(){var n=parseInt(buf,10);buf="";clearTimeout(bt);if(n>=1&&n<=TOTAL)local({op:"reveal",n:n,on:state.rev.indexOf(n)<0})}
 document.addEventListener("keydown",function(e){
-  if(!hw.hidden||e.target.closest("input,textarea")||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(!hw.hidden){if(e.key==="Escape")hw.hidden=true;return}
+  if(e.target.closest("input,textarea")||e.ctrlKey||e.metaKey||e.altKey)return;
   ensureAudio();
   var k=e.key;
   if(/^[0-9]$/.test(k)){buf+=k;clearTimeout(bt);if(parseInt(buf,10)*10>TOTAL)flush();else bt=setTimeout(flush,700);return}
